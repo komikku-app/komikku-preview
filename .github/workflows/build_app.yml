@@ -1,46 +1,62 @@
-name: Build job
+name: Remote Dispatch Build Preview App
 
 on:
-  # Every Saturday at 21:00 UTC
-  schedule:
-    - cron: '0 21 * * 6'
-  # Manual triggers
+  # Dispatch or Manual triggers
   workflow_dispatch:
     inputs:
       git-ref:
-        description: Git Ref (Optional)
+        description: Git Ref to build ('master' for preview build, any other for develop build)
         required: false
       dry-run:
-        description: Creates a draft release
+        description: Creates a draft release (any value would create a draft)
         required: false
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.inputs.git-ref }}
+  cancel-in-progress: true
+
 jobs:
+  build-type:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get branch name
+        run: |
+          echo "Running on: ${{ github.event.inputs.branch }}"
+
+      - name: Config build type
+        run: |
+          echo "Running on: ${{ github.event.inputs.branch }}"
+
   build-app:
     runs-on: ubuntu-latest
     steps:
       - name: Clone Repository (Latest)
-        uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
+        uses: actions/checkout@v4
+        if: github.event.inputs.git-ref == 'master'
         with:
-          repository: 'mihonapp/mihon'
+          repository: 'komikku-app/komikku'
           fetch-depth: 0
-        if: github.event.inputs.git-ref == ''
+
       - name: Clone Repository (Custom Ref)
-        uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
-        if: github.event.inputs.git-ref != ''
+        uses: actions/checkout@v4
+        if: github.event.inputs.git-ref != 'master'
         with:
-          repository: 'mihonapp/mihon'
+          repository: 'komikku-app/komikku'
           fetch-depth: 0
           ref: ${{ github.event.inputs.git-ref }}
 
-      - name: Set up JDK
-        uses: actions/setup-java@99b8673ff64fbf99d8d325f52d9a5bdedb8483e9 # v4.2.1
-        with:
-          java-version: 17
-          distribution: adopt
+      - name: Set up gradle
+        uses: gradle/actions/setup-gradle@v3
 
       - name: Setup Android SDK
         run: |
           ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager "build-tools;29.0.3"
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: 17
+          distribution: temurin
 
       - name: Get previous release
         id: last_release
@@ -66,21 +82,80 @@ jobs:
 
           echo "COMMIT_LOGS<<{delimiter}
           $(curl -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/mihonapp/mihon/compare/$prev_release_sha...$current_sha" \
+            "https://api.github.com/repos/komikku-app/komikku/compare/$prev_release_sha...$current_sha" \
             | jq '[.commits[]|{message:(.commit.message | split("\n")), username:.author.login}]' \
             | jq -r '.[]|"- \(.message | first) (@\(.username))"')
           {delimiter}" >> $GITHUB_ENV
 
-      - name: Set up gradle
-        uses: gradle/actions/setup-gradle@db19848a5fa7950289d3668fb053140cf3028d43 # v3.3.2
+          if [ "${{ github.event.inputs.git-ref }}" = "master" ]; then
+            echo "TAG_PREFIX=r" >> $GITHUB_ENV
+            echo "ARTIFACTS_PREFIX=standard/preview/app-standard" >> $GITHUB_ENV
+          else
+            echo "TAG_PREFIX=d" >> $GITHUB_ENV
+            echo "ARTIFACTS_PREFIX=dev/preview/app-dev" >> $GITHUB_ENV
+          fi
 
-      - name: Build APK
-        run: ./gradlew assembleStandardPreview
+      - name: Set CHANGELOG
+        run: |
+          changelog="$(git log ${{ env.PREV_RELEASE_SHA }}..${{ env.CURRENT_SHA }} --pretty=format:'{{changelogtext}}%s (@%an){{!changelogtext}}')"
+          changelog="${changelog//$'%'/%25}"
+          changelog="${changelog//$'\n'/}"
+          changelog="${changelog//$'\r'/}"
+          changelog="${changelog//$'<'/}"
+          changelog="${changelog//$'>'/}"
+          changelog="${changelog//$'&'/}"
+          changelog="$(echo $changelog | sed -e 's/{{changelogtext}}/<changelogtext>/g')"
+          changelog="$(echo $changelog | sed -e 's/{{!changelogtext}}/<\/changelogtext>/g')"
+          changelog="<?xml version=\"1.0\" encoding=\"utf-8\"?><changelog bulletedList=\"true\"><changelogversion versionName=\"${{ github.run_number }}\" changeDate=\"\">$changelog</changelogversion></changelog>"
+          echo "CHANGELOG=$changelog" >> $GITHUB_ENV
+
+      - name: Write changelog_debug.xml
+        uses: DamianReeves/write-file-action@v1.3
+        if: github.event.inputs.git-ref != 'master'
+        with:
+          path: app/src/main/res/raw/changelog_debug.xml
+          contents: "${{ env.CHANGELOG }}"
+          write-mode: overwrite
+
+      - name: Write google-services.json
+        uses: DamianReeves/write-file-action@v1.3
+        if: github.event.inputs.git-ref == 'master'
+        with:
+          path: app/google-services.json
+          contents: ${{ secrets.GOOGLE_SERVICES_TEXT }}
+          write-mode: overwrite
+
+      - name: Write client_secrets.json
+        uses: DamianReeves/write-file-action@v1.3
+        if: github.event.inputs.git-ref == 'master'
+        with:
+          path: app/src/main/assets/client_secrets.json
+          contents: ${{ secrets.CLIENT_SECRETS_TEXT }}
+          write-mode: overwrite
+
+      - name: Build Preview APK
+        run: ./gradlew assembleStandardPreview testStandardPreviewUnitTest --stacktrace
+        if: github.event.inputs.git-ref == 'master'
 
       - name: Sign APK
         uses: r0adkll/sign-android-release@349ebdef58775b1e0d8099458af0816dc79b6407 # v1
+        if: github.event.inputs.git-ref == 'master'
         with:
           releaseDirectory: app/build/outputs/apk/standard/preview
+          signingKeyBase64: ${{ secrets.SIGNING_KEY }}
+          alias: ${{ secrets.ALIAS }}
+          keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
+          keyPassword: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Build Development APK
+        run: ./gradlew assembleDevPreview testDevPreviewUnitTest --stacktrace
+        if: github.event.inputs.git-ref != 'master'
+
+      - name: Sign Development APK
+        uses: r0adkll/sign-android-release@349ebdef58775b1e0d8099458af0816dc79b6407 # v1
+        if: github.event.inputs.git-ref != 'master'
+        with:
+          releaseDirectory: app/build/outputs/apk/dev/preview
           signingKeyBase64: ${{ secrets.SIGNING_KEY }}
           alias: ${{ secrets.ALIAS }}
           keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
@@ -90,35 +165,35 @@ jobs:
         run: |
           set -e
 
-          cp app/build/outputs/apk/standard/preview/app-standard-universal-preview-signed.apk mihon-r${{ env.COMMIT_COUNT }}.apk
-          sha=`sha256sum mihon-r${{ env.COMMIT_COUNT }}.apk | awk '{ print $1 }'`
+          cp app/build/outputs/apk/${{ env.ARTIFACTS_PREFIX }}-universal-preview-signed.apk Komikku-${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}.apk
+          sha=`sha256sum Komikku-${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}.apk | awk '{ print $1 }'`
           echo "APK_UNIVERSAL_SHA=$sha" >> $GITHUB_ENV
 
-          cp app/build/outputs/apk/standard/preview/app-standard-arm64-v8a-preview-signed.apk mihon-arm64-v8a-r${{ env.COMMIT_COUNT }}.apk
-          sha=`sha256sum mihon-arm64-v8a-r${{ env.COMMIT_COUNT }}.apk | awk '{ print $1 }'`
+          cp app/build/outputs/apk/${{ env.ARTIFACTS_PREFIX }}-arm64-v8a-preview-signed.apk Komikku-arm64-v8a-${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}.apk
+          sha=`sha256sum Komikku-arm64-v8a-${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}.apk | awk '{ print $1 }'`
           echo "APK_ARM64_V8A_SHA=$sha" >> $GITHUB_ENV
 
-          cp app/build/outputs/apk/standard/preview/app-standard-armeabi-v7a-preview-signed.apk mihon-armeabi-v7a-r${{ env.COMMIT_COUNT }}.apk
-          sha=`sha256sum mihon-armeabi-v7a-r${{ env.COMMIT_COUNT }}.apk | awk '{ print $1 }'`
+          cp app/build/outputs/apk/${{ env.ARTIFACTS_PREFIX }}-armeabi-v7a-preview-signed.apk Komikku-armeabi-v7a-${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}.apk
+          sha=`sha256sum Komikku-armeabi-v7a-${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}.apk | awk '{ print $1 }'`
           echo "APK_ARMEABI_V7A_SHA=$sha" >> $GITHUB_ENV
 
-          cp app/build/outputs/apk/standard/preview/app-standard-x86-preview-signed.apk mihon-x86-r${{ env.COMMIT_COUNT }}.apk
-          sha=`sha256sum mihon-x86-r${{ env.COMMIT_COUNT }}.apk | awk '{ print $1 }'`
+          cp app/build/outputs/apk/${{ env.ARTIFACTS_PREFIX }}-x86-preview-signed.apk Komikku-x86-${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}.apk
+          sha=`sha256sum Komikku-x86-${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}.apk | awk '{ print $1 }'`
           echo "APK_X86_SHA=$sha" >> $GITHUB_ENV
 
-          cp app/build/outputs/apk/standard/preview/app-standard-x86_64-preview-signed.apk mihon-x86_64-r${{ env.COMMIT_COUNT }}.apk
-          sha=`sha256sum mihon-x86_64-r${{ env.COMMIT_COUNT }}.apk | awk '{ print $1 }'`
+          cp app/build/outputs/apk/${{ env.ARTIFACTS_PREFIX }}-x86_64-preview-signed.apk Komikku-x86_64-${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}.apk
+          sha=`sha256sum Komikku-x86_64-${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}.apk | awk '{ print $1 }'`
           echo "APK_X86_64_SHA=$sha" >> $GITHUB_ENV
 
       - name: Create release
         uses: softprops/action-gh-release@9d7c94cfd0a1f3ed45544c887983e9fa900f0564 # v2.0.4
         with:
-          tag_name: r${{ env.COMMIT_COUNT }}
-          name: Mihon Preview r${{ env.COMMIT_COUNT }}
+          tag_name: ${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}
+          name: Komikku Preview ${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}
           body: |
             ### Commits
 
-            https://github.com/mihonapp/mihon/compare/${{ env.PREV_RELEASE_SHA }}...${{ env.CURRENT_SHA }}
+            https://github.com/komikku-app/komikku/compare/${{ env.PREV_RELEASE_SHA }}...${{ env.CURRENT_SHA }}
 
             ${{ env.COMMIT_LOGS }}
 
@@ -128,21 +203,21 @@ jobs:
 
             | Variant | SHA-256 |
             | ------- | ------- |
-            | Universal | ${{ env.APK_UNIVERSAL_SHA }}
-            | arm64-v8a | ${{ env.APK_ARM64_V8A_SHA }}
-            | armeabi-v7a | ${{ env.APK_ARMEABI_V7A_SHA }}
+            | Universal | ${{ env.APK_UNIVERSAL_SHA }} |
+            | arm64-v8a | ${{ env.APK_ARM64_V8A_SHA }} |
+            | armeabi-v7a | ${{ env.APK_ARMEABI_V7A_SHA }} |
             | x86 | ${{ env.APK_X86_SHA }} |
             | x86_64 | ${{ env.APK_X86_64_SHA }} |
             
-            ## If you are unsure which apk to download then go with mihon-r${{ env.COMMIT_COUNT }}.apk
+            ## If you are unsure which apk to download then go with Komikku-${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}.apk
           files: |
-            mihon-r${{ env.COMMIT_COUNT }}.apk
-            mihon-arm64-v8a-r${{ env.COMMIT_COUNT }}.apk
-            mihon-armeabi-v7a-r${{ env.COMMIT_COUNT }}.apk
-            mihon-x86-r${{ env.COMMIT_COUNT }}.apk
-            mihon-x86_64-r${{ env.COMMIT_COUNT }}.apk
-          draft: ${{ github.event.inputs.dry-run != '' }}
-          prerelease: false
+            Komikku-${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}.apk
+            Komikku-arm64-v8a-${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}.apk
+            Komikku-armeabi-v7a-${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}.apk
+            Komikku-x86-${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}.apk
+            Komikku-x86_64-${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}.apk
+          draft: ${{ github.event.inputs.dry-run != '' || github.event.inputs.git-ref == 'master'}}
+          prerelease: ${{ github.event.inputs.git-ref != 'master'}}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
