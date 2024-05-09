@@ -33,16 +33,8 @@ jobs:
   build-app:
     runs-on: ubuntu-latest
     steps:
-      - name: Clone Repository (Latest)
+      - name: Clone Repository (${{ github.event.inputs.git-ref }})
         uses: actions/checkout@v4
-        if: github.event.inputs.git-ref == 'master'
-        with:
-          repository: 'komikku-app/komikku'
-          fetch-depth: 0
-
-      - name: Clone Repository (Custom Ref)
-        uses: actions/checkout@v4
-        if: github.event.inputs.git-ref != 'master'
         with:
           repository: 'komikku-app/komikku'
           fetch-depth: 0
@@ -137,6 +129,11 @@ jobs:
           path: app/src/main/assets/client_secrets.json
           contents: ${{ secrets.GOOGLE_CLIENT_SECRETS_JSON }}
           write-mode: overwrite
+
+      # - name: Build app and run unit tests
+      #   uses: gradle/gradle-command-action@v2
+      #   with:
+      #     arguments: detekt assembleStandardPreview testPreviewUnitTest
 
       - name: Build Preview APK
         run: ./gradlew assembleStandardPreview testStandardPreviewUnitTest --stacktrace
