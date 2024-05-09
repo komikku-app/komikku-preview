@@ -11,27 +11,91 @@ on:
         description: Creates a draft release (any value would create a draft)
         required: false
 
-env:
-  CURRENT_SHA:
-  PREV_RELEASE_SHA:
-  COMMIT_COUNT:
-  CHANGELOG:
-  COMMIT_LOGS:
-  TAG_PREFIX:
-  ARTIFACTS_PREFIX:
-  APK_UNIVERSAL_SHA:
-  APK_ARM64_V8A_SHA:
-  APK_ARMEABI_V7A_SHA:
-  APK_X86_SHA:
-  APK_X86_64_SHA:
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.inputs.git-ref }}
   cancel-in-progress: true
 
 jobs:
+  prepare-build:
+    runs-on: ubuntu-latest
+    outputs:
+      COMMIT_COUNT: ${{ steps.prepare_env.outputs.COMMIT_COUNT }}
+      CURRENT_SHA: ${{ steps.prepare_env.outputs.CURRENT_SHA }}
+      PREV_RELEASE_SHA: ${{ steps.prepare_env.outputs.PREV_RELEASE_SHA }}
+      COMMIT_LOGS: ${{ steps.prepare_env.outputs.COMMIT_LOGS }}
+      TAG_PREFIX: ${{ steps.prepare_env.outputs.TAG_PREFIX }}
+      ARTIFACTS_PREFIX: ${{ steps.prepare_env.outputs.ARTIFACTS_PREFIX }}
+      CHANGELOG: ${{ steps.set_changelog.outputs.CHANGELOG }}
+    steps:
+      - name: Clone Repository (${{ github.event.inputs.git-ref }})
+        uses: actions/checkout@v4
+        with:
+          repository: 'komikku-app/komikku'
+          fetch-depth: 0
+          ref: ${{ github.event.inputs.git-ref }}
+
+      - name: Validate Gradle Wrapper
+        uses: gradle/actions/wrapper-validation@v3
+
+      - name: Get previous release
+        id: last_release
+        uses: InsonusK/get-latest-release@7a9ff16c8c6b7ead5d71c0f1cc61f2703170eade # v1.1.0
+        with:
+          myToken: ${{ github.token }}
+          exclude_types: "draft|prerelease"
+          view_top: 1
+
+      - name: Prepare env
+        id: prepare_env
+        run: |
+          set -e
+
+          commit_count=$(git rev-list --count HEAD)
+          echo "COMMIT_COUNT=$commit_count" >> $GITHUB_OUTPUT
+          current_sha=$(git rev-parse --short HEAD)
+          echo "CURRENT_SHA=$current_sha" >> $GITHUB_OUTPUT
+
+          prev_commit_count=$(echo "${{ steps.last_release.outputs.tag_name }}" | sed -e "s/^r//")
+          commit_count_diff=$(expr $commit_count - $prev_commit_count)
+          prev_release_sha=$(git rev-parse --short HEAD~$commit_count_diff)
+          echo "PREV_RELEASE_SHA=$prev_release_sha" >> $GITHUB_OUTPUT
+
+          echo "COMMIT_LOGS<<{delimiter}
+          $(curl -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/komikku-app/komikku/compare/$prev_release_sha...$current_sha" \
+            | jq '[.commits[]|{message:(.commit.message | split("\n")), username:.author.login}]' \
+            | jq -r '.[]|"- \(.message | first) (@\(.username))"')
+          {delimiter}" >> $GITHUB_OUTPUT
+
+          if [ "${{ github.event.inputs.git-ref }}" = "master" ]; then
+            tag_prefix=r
+            artifacts_prefix=standard/preview/app-standard
+          else
+            tag_prefix=d
+            artifacts_prefix=dev/preview/app-dev
+          fi
+          echo "TAG_PREFIX=$tag_prefix" >> $GITHUB_OUTPUT
+          echo "ARTIFACTS_PREFIX=$artifacts_prefix" >> $GITHUB_OUTPUT
+
+      - name: Set CHANGELOG
+        id: set_changelog
+        run: |
+          changelog="$(git log ${{ steps.prepare_env.outputs.PREV_RELEASE_SHA }}..${{ steps.prepare_env.outputs.CURRENT_SHA }} --pretty=format:'{{changelogtext}}%s (@%an){{!changelogtext}}')"
+          changelog="${changelog//$'%'/%25}"
+          changelog="${changelog//$'\n'/}"
+          changelog="${changelog//$'\r'/}"
+          changelog="${changelog//$'<'/}"
+          changelog="${changelog//$'>'/}"
+          changelog="${changelog//$'&'/}"
+          changelog="$(echo $changelog | sed -e 's/{{changelogtext}}/<changelogtext>/g')"
+          changelog="$(echo $changelog | sed -e 's/{{!changelogtext}}/<\/changelogtext>/g')"
+          changelog="<?xml version=\"1.0\" encoding=\"utf-8\"?><changelog bulletedList=\"true\"><changelogversion versionName=\"${{ github.run_number }}\" changeDate=\"\">$changelog</changelogversion></changelog>"
+          echo "CHANGELOG=$changelog" >> $GITHUB_OUTPUT
+          echo "$changelog"
+
   build-app:
     runs-on: ubuntu-latest
+    needs: prepare-build
     steps:
       - name: Clone Repository (${{ github.event.inputs.git-ref }})
         uses: actions/checkout@v4
@@ -52,66 +116,13 @@ jobs:
         with:
           java-version: 17
           distribution: temurin
-
-      - name: Get previous release
-        id: last_release
-        uses: InsonusK/get-latest-release@7a9ff16c8c6b7ead5d71c0f1cc61f2703170eade # v1.1.0
-        with:
-          myToken: ${{ github.token }}
-          exclude_types: "draft|prerelease"
-          view_top: 1
-
-      - name: Prepare build
-        run: |
-          set -e
-
-          commit_count=$(git rev-list --count HEAD)
-          echo "COMMIT_COUNT=$commit_count" >> $GITHUB_ENV
-          current_sha=$(git rev-parse --short HEAD)
-          echo "CURRENT_SHA=$current_sha" >> $GITHUB_ENV
-
-          prev_commit_count=$(echo "${{ steps.last_release.outputs.tag_name }}" | sed -e "s/^r//")
-          commit_count_diff=$(expr $commit_count - $prev_commit_count)
-          prev_release_sha=$(git rev-parse --short HEAD~$commit_count_diff)
-          echo "PREV_RELEASE_SHA=$prev_release_sha" >> $GITHUB_ENV
-
-          echo "COMMIT_LOGS<<{delimiter}
-          $(curl -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/komikku-app/komikku/compare/$prev_release_sha...$current_sha" \
-            | jq '[.commits[]|{message:(.commit.message | split("\n")), username:.author.login}]' \
-            | jq -r '.[]|"- \(.message | first) (@\(.username))"')
-          {delimiter}" >> $GITHUB_ENV
-
-          if [ "${{ github.event.inputs.git-ref }}" = "master" ]; then
-            tag_prefix=r
-            artifacts_prefix=standard/preview/app-standard
-          else
-            tag_prefix=d
-            artifacts_prefix=dev/preview/app-dev
-          fi
-          echo "TAG_PREFIX=$tag_prefix" >> $GITHUB_ENV
-          echo "ARTIFACTS_PREFIX=$artifacts_prefix" >> $GITHUB_ENV
-
-      - name: Set CHANGELOG
-        run: |
-          changelog="$(git log ${{ env.PREV_RELEASE_SHA }}..${{ env.CURRENT_SHA }} --pretty=format:'{{changelogtext}}%s (@%an){{!changelogtext}}')"
-          changelog="${changelog//$'%'/%25}"
-          changelog="${changelog//$'\n'/}"
-          changelog="${changelog//$'\r'/}"
-          changelog="${changelog//$'<'/}"
-          changelog="${changelog//$'>'/}"
-          changelog="${changelog//$'&'/}"
-          changelog="$(echo $changelog | sed -e 's/{{changelogtext}}/<changelogtext>/g')"
-          changelog="$(echo $changelog | sed -e 's/{{!changelogtext}}/<\/changelogtext>/g')"
-          changelog="<?xml version=\"1.0\" encoding=\"utf-8\"?><changelog bulletedList=\"true\"><changelogversion versionName=\"${{ github.run_number }}\" changeDate=\"\">$changelog</changelogversion></changelog>"
-          echo "CHANGELOG=$changelog" >> $GITHUB_ENV
-
+          
       - name: Write changelog_debug.xml
         uses: DamianReeves/write-file-action@v1.3
         if: github.event.inputs.git-ref != 'master'
         with:
           path: app/src/main/res/raw/changelog_debug.xml
-          contents: "${{ env.CHANGELOG }}"
+          contents: "${{ needs.prepare-build.outputs.CHANGELOG }}"
           write-mode: overwrite
 
       - name: Write google-services.json
@@ -139,6 +150,31 @@ jobs:
         run: ./gradlew assembleStandardPreview testStandardPreviewUnitTest --stacktrace
         if: github.event.inputs.git-ref == 'master'
 
+      - name: Build Development APK
+        run: ./gradlew assembleDevPreview testDevPreviewUnitTest --stacktrace
+        if: github.event.inputs.git-ref != 'master'
+        
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          path: "**/*.apk"
+          retention-days: 1
+
+  release-app:
+    runs-on: ubuntu-latest
+    needs:
+      - prepare-build
+      - build-app
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Setup Android SDK
+        run: |
+          ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager "build-tools;29.0.3"
+
       - name: Sign APK
         uses: r0adkll/sign-android-release@349ebdef58775b1e0d8099458af0816dc79b6407 # v1
         if: github.event.inputs.git-ref == 'master'
@@ -148,10 +184,6 @@ jobs:
           alias: ${{ secrets.ALIAS }}
           keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
           keyPassword: ${{ secrets.KEY_PASSWORD }}
-
-      - name: Build Development APK
-        run: ./gradlew assembleDevPreview testDevPreviewUnitTest --stacktrace
-        if: github.event.inputs.git-ref != 'master'
 
       - name: Sign Development APK
         uses: r0adkll/sign-android-release@349ebdef58775b1e0d8099458af0816dc79b6407 # v1
@@ -163,41 +195,42 @@ jobs:
           keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
           keyPassword: ${{ secrets.KEY_PASSWORD }}
 
-      - name: Clean up build artifacts
+      - name: Get SHA & clean up build artifacts
+        id: get_sha
         run: |
           set -e
 
-          cp app/build/outputs/apk/${{ env.ARTIFACTS_PREFIX }}-universal-preview-signed.apk Komikku-${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}.apk
-          sha=`sha256sum Komikku-${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}.apk | awk '{ print $1 }'`
-          echo "APK_UNIVERSAL_SHA=$sha" >> $GITHUB_ENV
+          mv app/build/outputs/apk/${{ needs.prepare-build.outputs.ARTIFACTS_PREFIX }}-universal-preview-signed.apk Komikku-${{ needs.prepare-build.outputs.TAG_PREFIX }}${{ needs.prepare-build.outputs.COMMIT_COUNT }}.apk
+          sha=`sha256sum Komikku-${{ needs.prepare-build.outputs.TAG_PREFIX }}${{ needs.prepare-build.outputs.COMMIT_COUNT }}.apk | awk '{ print $1 }'`
+          echo "APK_UNIVERSAL_SHA=$sha" >> $GITHUB_OUTPUT
 
-          cp app/build/outputs/apk/${{ env.ARTIFACTS_PREFIX }}-arm64-v8a-preview-signed.apk Komikku-arm64-v8a-${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}.apk
-          sha=`sha256sum Komikku-arm64-v8a-${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}.apk | awk '{ print $1 }'`
-          echo "APK_ARM64_V8A_SHA=$sha" >> $GITHUB_ENV
+          mv app/build/outputs/apk/${{ needs.prepare-build.outputs.ARTIFACTS_PREFIX }}-arm64-v8a-preview-signed.apk Komikku-arm64-v8a-${{ needs.prepare-build.outputs.TAG_PREFIX }}${{ needs.prepare-build.outputs.COMMIT_COUNT }}.apk
+          sha=`sha256sum Komikku-arm64-v8a-${{ needs.prepare-build.outputs.TAG_PREFIX }}${{ needs.prepare-build.outputs.COMMIT_COUNT }}.apk | awk '{ print $1 }'`
+          echo "APK_ARM64_V8A_SHA=$sha" >> $GITHUB_OUTPUT
 
-          cp app/build/outputs/apk/${{ env.ARTIFACTS_PREFIX }}-armeabi-v7a-preview-signed.apk Komikku-armeabi-v7a-${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}.apk
-          sha=`sha256sum Komikku-armeabi-v7a-${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}.apk | awk '{ print $1 }'`
-          echo "APK_ARMEABI_V7A_SHA=$sha" >> $GITHUB_ENV
+          mv app/build/outputs/apk/${{ needs.prepare-build.outputs.ARTIFACTS_PREFIX }}-armeabi-v7a-preview-signed.apk Komikku-armeabi-v7a-${{ needs.prepare-build.outputs.TAG_PREFIX }}${{ needs.prepare-build.outputs.COMMIT_COUNT }}.apk
+          sha=`sha256sum Komikku-armeabi-v7a-${{ needs.prepare-build.outputs.TAG_PREFIX }}${{ needs.prepare-build.outputs.COMMIT_COUNT }}.apk | awk '{ print $1 }'`
+          echo "APK_ARMEABI_V7A_SHA=$sha" >> $GITHUB_OUTPUT
 
-          cp app/build/outputs/apk/${{ env.ARTIFACTS_PREFIX }}-x86-preview-signed.apk Komikku-x86-${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}.apk
-          sha=`sha256sum Komikku-x86-${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}.apk | awk '{ print $1 }'`
-          echo "APK_X86_SHA=$sha" >> $GITHUB_ENV
+          mv app/build/outputs/apk/${{ needs.prepare-build.outputs.ARTIFACTS_PREFIX }}-x86-preview-signed.apk Komikku-x86-${{ needs.prepare-build.outputs.TAG_PREFIX }}${{ needs.prepare-build.outputs.COMMIT_COUNT }}.apk
+          sha=`sha256sum Komikku-x86-${{ needs.prepare-build.outputs.TAG_PREFIX }}${{ needs.prepare-build.outputs.COMMIT_COUNT }}.apk | awk '{ print $1 }'`
+          echo "APK_X86_SHA=$sha" >> $GITHUB_OUTPUT
 
-          cp app/build/outputs/apk/${{ env.ARTIFACTS_PREFIX }}-x86_64-preview-signed.apk Komikku-x86_64-${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}.apk
-          sha=`sha256sum Komikku-x86_64-${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}.apk | awk '{ print $1 }'`
-          echo "APK_X86_64_SHA=$sha" >> $GITHUB_ENV
+          mv app/build/outputs/apk/${{ needs.prepare-build.outputs.ARTIFACTS_PREFIX }}-x86_64-preview-signed.apk Komikku-x86_64-${{ needs.prepare-build.outputs.TAG_PREFIX }}${{ needs.prepare-build.outputs.COMMIT_COUNT }}.apk
+          sha=`sha256sum Komikku-x86_64-${{ needs.prepare-build.outputs.TAG_PREFIX }}${{ needs.prepare-build.outputs.COMMIT_COUNT }}.apk | awk '{ print $1 }'`
+          echo "APK_X86_64_SHA=$sha" >> $GITHUB_OUTPUT
 
       - name: Create release
         uses: softprops/action-gh-release@9d7c94cfd0a1f3ed45544c887983e9fa900f0564 # v2.0.4
         with:
-          tag_name: ${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}
-          name: Komikku Preview ${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}
+          tag_name: ${{ needs.prepare-build.outputs.TAG_PREFIX }}${{ needs.prepare-build.outputs.COMMIT_COUNT }}
+          name: Komikku Preview ${{ needs.prepare-build.outputs.TAG_PREFIX }}${{ needs.prepare-build.outputs.COMMIT_COUNT }}
           body: |
             ### Commits
 
-            https://github.com/komikku-app/komikku/compare/${{ env.PREV_RELEASE_SHA }}...${{ env.CURRENT_SHA }}
+            https://github.com/komikku-app/komikku/compare/${{ needs.prepare-build.outputs.PREV_RELEASE_SHA }}...${{ needs.prepare-build.outputs.CURRENT_SHA }}
 
-            ${{ env.COMMIT_LOGS }}
+            ${{ needs.prepare-build.outputs.COMMIT_LOGS }}
 
             ---
 
@@ -205,24 +238,27 @@ jobs:
 
             | Variant | SHA-256 |
             | ------- | ------- |
-            | Universal | ${{ env.APK_UNIVERSAL_SHA }} |
-            | arm64-v8a | ${{ env.APK_ARM64_V8A_SHA }} |
-            | armeabi-v7a | ${{ env.APK_ARMEABI_V7A_SHA }} |
-            | x86 | ${{ env.APK_X86_SHA }} |
-            | x86_64 | ${{ env.APK_X86_64_SHA }} |
+            | Universal | ${{ steps.get_sha.outputs.APK_UNIVERSAL_SHA }} |
+            | arm64-v8a | ${{ steps.get_sha.outputs.APK_ARM64_V8A_SHA }} |
+            | armeabi-v7a | ${{ steps.get_sha.outputs.APK_ARMEABI_V7A_SHA }} |
+            | x86 | ${{ steps.get_sha.outputs.APK_X86_SHA }} |
+            | x86_64 | ${{ steps.get_sha.outputs.APK_X86_64_SHA }} |
             
-            ## If you are unsure which apk to download then go with Komikku-${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}.apk
+            ## If you are unsure which apk to download then go with Komikku-${{ needs.prepare-build.outputs.TAG_PREFIX }}${{ needs.prepare-build.outputs.COMMIT_COUNT }}.apk
           files: |
-            Komikku-${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}.apk
-            Komikku-arm64-v8a-${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}.apk
-            Komikku-armeabi-v7a-${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}.apk
-            Komikku-x86-${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}.apk
-            Komikku-x86_64-${{ env.TAG_PREFIX }}${{ env.COMMIT_COUNT }}.apk
+            Komikku-${{ needs.prepare-build.outputs.TAG_PREFIX }}${{ needs.prepare-build.outputs.COMMIT_COUNT }}.apk
+            Komikku-arm64-v8a-${{ needs.prepare-build.outputs.TAG_PREFIX }}${{ needs.prepare-build.outputs.COMMIT_COUNT }}.apk
+            Komikku-armeabi-v7a-${{ needs.prepare-build.outputs.TAG_PREFIX }}${{ needs.prepare-build.outputs.COMMIT_COUNT }}.apk
+            Komikku-x86-${{ needs.prepare-build.outputs.TAG_PREFIX }}${{ needs.prepare-build.outputs.COMMIT_COUNT }}.apk
+            Komikku-x86_64-${{ needs.prepare-build.outputs.TAG_PREFIX }}${{ needs.prepare-build.outputs.COMMIT_COUNT }}.apk
           draft: ${{ github.event.inputs.dry-run != '' || github.event.inputs.git-ref == 'master'}}
           prerelease: ${{ github.event.inputs.git-ref != 'master'}}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  cleaning-repo:
+    runs-on: ubuntu-latest
+    steps:
       - name: Prune old releases
         uses: dev-drprasad/delete-older-releases@0bf4e6748f08135170c2294f877ba7d9b633b028 # v0.3.3
         env:
