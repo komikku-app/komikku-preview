@@ -11,22 +11,25 @@ on:
         description: Creates a draft release (any value would create a draft)
         required: false
 
+env:
+  CURRENT_SHA:
+  PREV_RELEASE_SHA:
+  COMMIT_COUNT:
+  CHANGELOG:
+  COMMIT_LOGS:
+  TAG_PREFIX:
+  ARTIFACTS_PREFIX:
+  APK_UNIVERSAL_SHA:
+  APK_ARM64_V8A_SHA:
+  APK_ARMEABI_V7A_SHA:
+  APK_X86_SHA:
+  APK_X86_64_SHA:
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.inputs.git-ref }}
   cancel-in-progress: true
 
 jobs:
-  build-type:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Get branch name
-        run: |
-          echo "Running on: ${{ github.event.inputs.branch }}"
-
-      - name: Config build type
-        run: |
-          echo "Running on: ${{ github.event.inputs.branch }}"
-
   build-app:
     runs-on: ubuntu-latest
     steps:
@@ -88,12 +91,14 @@ jobs:
           {delimiter}" >> $GITHUB_ENV
 
           if [ "${{ github.event.inputs.git-ref }}" = "master" ]; then
-            echo "TAG_PREFIX=r" >> $GITHUB_ENV
-            echo "ARTIFACTS_PREFIX=standard/preview/app-standard" >> $GITHUB_ENV
+            tag_prefix=r
+            artifacts_prefix=standard/preview/app-standard
           else
-            echo "TAG_PREFIX=d" >> $GITHUB_ENV
-            echo "ARTIFACTS_PREFIX=dev/preview/app-dev" >> $GITHUB_ENV
+            tag_prefix=d
+            artifacts_prefix=dev/preview/app-dev
           fi
+          echo "TAG_PREFIX=$tag_prefix" >> $GITHUB_ENV
+          echo "ARTIFACTS_PREFIX=$artifacts_prefix" >> $GITHUB_ENV
 
       - name: Set CHANGELOG
         run: |
@@ -122,7 +127,7 @@ jobs:
         if: github.event.inputs.git-ref == 'master'
         with:
           path: app/google-services.json
-          contents: ${{ secrets.GOOGLE_SERVICES_TEXT }}
+          contents: ${{ secrets.GOOGLE_SERVICES_JSON }}
           write-mode: overwrite
 
       - name: Write client_secrets.json
@@ -130,7 +135,7 @@ jobs:
         if: github.event.inputs.git-ref == 'master'
         with:
           path: app/src/main/assets/client_secrets.json
-          contents: ${{ secrets.CLIENT_SECRETS_TEXT }}
+          contents: ${{ secrets.GOOGLE_CLIENT_SECRETS_JSON }}
           write-mode: overwrite
 
       - name: Build Preview APK
