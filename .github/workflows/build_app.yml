@@ -97,11 +97,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: prepare-build
     steps:
-      - name: Clone Repository (${{ github.event.inputs.git-ref }})
+      - name: Clone Repository (${{ github.event.inputs.git-ref }} - ${{ needs.prepare-build.outputs.TAG_PREFIX }}${{ needs.prepare-build.outputs.COMMIT_COUNT }})
         uses: actions/checkout@v4
         with:
           repository: 'komikku-app/komikku'
-          fetch-depth: 0
           ref: ${{ github.event.inputs.git-ref }}
 
       - name: Set up gradle
