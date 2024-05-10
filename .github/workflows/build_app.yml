@@ -103,7 +103,7 @@ jobs:
           else
             tag_prefix=d
             artifacts_prefix=dev/preview/app-dev
-            build_type_name=Develop
+            build_type_name="Dev build"
           fi
           echo "TAG_PREFIX=$tag_prefix" >> $GITHUB_OUTPUT
           echo "ARTIFACTS_PREFIX=$artifacts_prefix" >> $GITHUB_OUTPUT
