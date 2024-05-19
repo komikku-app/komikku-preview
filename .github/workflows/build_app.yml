@@ -99,7 +99,7 @@ jobs:
           if [ "${{ github.event.inputs.git-ref }}" = "master" ]; then
             tag_prefix=r
             artifacts_prefix=standard/preview/app-standard
-            built_type_name=Preview
+            build_type_name=Preview
           else
             tag_prefix=d
             artifacts_prefix=dev/preview/app-dev
