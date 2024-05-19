@@ -1,5 +1,5 @@
 {
-  "baseBranches": ["master"],
+  "baseBranches": ["main"],
   "rebaseWhen": "conflicted",
   "labels": ["Dependencies"],
   "automerge": true,
