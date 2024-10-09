@@ -141,6 +141,20 @@ jobs:
           ref: ${{ github.event.inputs.git-ref }}
           ssh-key: '${{ secrets.KOMIKKU_DEPLOY }}'
 
+      - name: Clone Submodule
+        run: |
+          mkdir -p $HOME/.ssh
+          echo '${{ secrets.ADBLOCKANDROID_DEPLOY }}' > $HOME/.ssh/ssh.key
+          chmod 600 $HOME/.ssh/ssh.key
+          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/ssh.key"
+          git submodule set-url ${{ env.SUBMODULE_PATH }} git@github.com:${{ env.REPO }}.git
+          git submodule update --init --recursive
+          git submodule set-url ${{ env.SUBMODULE_PATH }} https://github.com/${{ env.REPO }}.git
+          unset GIT_SSH_COMMAND
+        env:
+          SUBMODULE_PATH: AdblockAndroid
+          REPO: komikku-app/AdblockAndroid
+
       - name: Setup Android SDK
         run: |
           ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager "build-tools;29.0.3"
