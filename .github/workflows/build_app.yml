@@ -64,13 +64,10 @@ jobs:
         run: |
           set -e
 
-          prev_commit_count=$(echo "${{ steps.last_release.outputs.tag_name }}" | sed -e "s/^r//")
-          echo "prev_commit_count=$prev_commit_count"
+          commit_count_diff=$(git rev-list --count "${{ steps.last_release.outputs.tag_name }}"..HEAD)
 
           # Fake at least 1 commits (to avoid no changes)
-          if [ "${{ steps.current_commit.outputs.COMMIT_COUNT }}" -gt "$prev_commit_count" ]; then
-            commit_count_diff="$(expr ${{ steps.current_commit.outputs.COMMIT_COUNT }} - $prev_commit_count)"
-          else
+          if [ "${commit_count_diff}" -eq 0 ]; then
             commit_count_diff=1
           fi
 
