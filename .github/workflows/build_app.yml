@@ -248,16 +248,16 @@ jobs:
           tag_name: ${{ needs.prepare-build.outputs.TAG_NAME }}
           name: Komikku ${{ needs.prepare-build.outputs.BUILD_TYPE_NAME }} ${{ needs.prepare-build.outputs.TAG_NAME }}
           body: |
-            ## What's Changed
-            ### New
+            #### What's Changed
+            ##### New
 
-            ### Improve
+            ##### Improve
 
-            ### Fix
-            
-            **Full Changelog**: https://github.com/komikku-app/komikku/compare/${{ needs.prepare-build.outputs.PREV_TAG_NAME }}...${{ needs.prepare-build.outputs.TAG_NAME }}
+            ##### Fix
 
             ${{ needs.prepare-build.outputs.COMMIT_LOGS }}
+
+            **Full Changelog**: [${{ needs.prepare-build.outputs.TAG_NAME }}](https://github.com/komikku-app/komikku/compare/${{ needs.prepare-build.outputs.PREV_TAG_NAME }}...${{ needs.prepare-build.outputs.TAG_NAME }})
 
             ---
 
