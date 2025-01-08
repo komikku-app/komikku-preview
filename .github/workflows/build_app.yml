@@ -36,9 +36,6 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.inputs.git-ref }}
 
-      - name: Validate Gradle Wrapper
-        uses: gradle/actions/wrapper-validation@0bdd871935719febd78681f197cd39af5b6e16a6 # v4
-
       - name: Get previous release
         id: last_release
         uses: InsonusK/get-latest-release@7a9ff16c8c6b7ead5d71c0f1cc61f2703170eade # v1.1.0
@@ -179,13 +176,24 @@ jobs:
       #   with:
       #     arguments: detekt assembleStandardPreview testStandardPreviewUnitTest testReleaseUnitTest
 
-      - name: Build standard app and run unit tests
-        if: github.event.inputs.git-ref == 'master'
-        run: ./gradlew assembleStandardPreview testStandardPreviewUnitTest testReleaseUnitTest -Pandroid.signingConfig=debug --stacktrace
+      - name: Check code format
+        run: ./gradlew spotlessCheck
 
-      - name: Build dev app and run unit tests
+      - name: Build app
+        if: github.event.inputs.git-ref == 'master'
+        run: ./gradlew assembleStandardPreview -Pandroid.signingConfig=debug
+
+      - name: Run unit tests
+        if: github.event.inputs.git-ref == 'master'
+        run: ./gradlew testReleaseUnitTest testStandardPreviewUnitTest
+
+      - name: Build app
         if: github.event.inputs.git-ref != 'master'
-        run: ./gradlew assembleDevPreview testDevPreviewUnitTest testReleaseUnitTest -Pandroid.signingConfig=debug --stacktrace
+        run: ./gradlew assembleDevPreview -Pandroid.signingConfig=debug
+
+      - name: Run unit tests
+        if: github.event.inputs.git-ref != 'master'
+        run: ./gradlew testReleaseUnitTest testDevPreviewUnitTest
 
       - name: Upload artifacts
         uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b # v4.5.0
