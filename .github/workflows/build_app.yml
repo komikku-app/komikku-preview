@@ -18,7 +18,7 @@ concurrency:
 jobs:
   prepare-build:
     if: github.event.inputs.git-ref != ''
-    runs-on: ubuntu-latest
+    runs-on: 'ubuntu-24.04'
     outputs:
       CURRENT_SHA: ${{ steps.current_commit.outputs.CURRENT_SHA }}
       PREV_RELEASE_SHA: ${{ steps.previous_commit.outputs.PREV_RELEASE_SHA }}
@@ -79,15 +79,9 @@ jobs:
         run: |
           set -e
 
-          if [ "${{ github.event.inputs.git-ref }}" = "master" ]; then
-            tag_prefix=r
-            artifacts_prefix=standard/preview/app-standard
-            build_type_name=Preview
-          else
-            tag_prefix=d
-            artifacts_prefix=dev/preview/app-dev
-            build_type_name="Dev build"
-          fi
+          tag_prefix=r
+          artifacts_prefix=preview/app
+          build_type_name=Preview
 
           echo "${tag_prefix}${{ steps.current_commit.outputs.COMMIT_COUNT }}"
           echo "TAG_NAME=${tag_prefix}${{ steps.current_commit.outputs.COMMIT_COUNT }}" >> $GITHUB_OUTPUT
@@ -123,7 +117,7 @@ jobs:
           echo "CHANGELOG=$changelog" >> $GITHUB_OUTPUT
 
   build-app:
-    runs-on: ubuntu-latest
+    runs-on: 'ubuntu-24.04'
     needs: prepare-build
     steps:
       - name: Clone Repository (${{ github.event.inputs.git-ref }} - ${{ needs.prepare-build.outputs.TAG_NAME }})
@@ -132,10 +126,6 @@ jobs:
           repository: 'komikku-app/komikku'
           fetch-depth: 0
           ref: ${{ github.event.inputs.git-ref }}
-
-      - name: Setup Android SDK
-        run: |
-          ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager "build-tools;29.0.3"
 
       - name: Set up JDK
         uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12 # v4.7.0
@@ -157,7 +147,7 @@ jobs:
         if: github.event.inputs.git-ref == 'master'
         with:
           path: app/google-services.json
-          contents: ${{ secrets.GOOGLE_SERVICES_JSON }}
+          contents: "${{ secrets.GOOGLE_SERVICES_JSON }}"
           write-mode: overwrite
 
       - name: Write client_secrets.json
@@ -165,35 +155,22 @@ jobs:
         if: github.event.inputs.git-ref == 'master'
         with:
           path: app/src/main/assets/client_secrets.json
-          contents: ${{ secrets.GOOGLE_CLIENT_SECRETS_JSON }}
+          contents: "${{ secrets.GOOGLE_CLIENT_SECRETS_JSON }}"
           write-mode: overwrite
 
       - name: Set up gradle
         uses: gradle/actions/setup-gradle@94baf225fe0a508e581a564467443d0e2379123b # v4
-
-      # - name: Build app and run unit tests
-      #   uses: gradle/gradle-command-action@v2
-      #   with:
-      #     arguments: detekt assembleStandardPreview testStandardPreviewUnitTest testReleaseUnitTest
 
       - name: Check code format
         run: ./gradlew spotlessCheck
 
       - name: Build app
         if: github.event.inputs.git-ref == 'master'
-        run: ./gradlew assembleStandardPreview -Pandroid.signingConfig=debug
+        run: ./gradlew assemblePreview -Pinclude-telemetry -Penable-updater
 
       - name: Run unit tests
         if: github.event.inputs.git-ref == 'master'
-        run: ./gradlew testReleaseUnitTest testStandardPreviewUnitTest
-
-      - name: Build app
-        if: github.event.inputs.git-ref != 'master'
-        run: ./gradlew assembleDevPreview -Pandroid.signingConfig=debug
-
-      - name: Run unit tests
-        if: github.event.inputs.git-ref != 'master'
-        run: ./gradlew testReleaseUnitTest testDevPreviewUnitTest
+        run: ./gradlew testReleaseUnitTest
 
       - name: Upload artifacts
         uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
@@ -202,7 +179,7 @@ jobs:
           retention-days: 1
 
   release-app:
-    runs-on: ubuntu-latest
+    runs-on: 'ubuntu-24.04'
     needs:
       - prepare-build
       - build-app
@@ -212,18 +189,16 @@ jobs:
         with:
           merge-multiple: true
 
-      - name: Setup Android SDK
-        run: |
-          ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager "build-tools;29.0.3"
-
       - name: Sign APK
         uses: r0adkll/sign-android-release@349ebdef58775b1e0d8099458af0816dc79b6407 # v1
         with:
-          releaseDirectory: app/build/outputs/apk/standard/preview
+          releaseDirectory: app/build/outputs/apk/preview
           signingKeyBase64: ${{ secrets.SIGNING_KEY }}
           alias: ${{ secrets.ALIAS }}
           keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
           keyPassword: ${{ secrets.KEY_PASSWORD }}
+        env:
+          BUILD_TOOLS_VERSION: '35.0.1'
 
       - name: Get SHA & clean up build artifacts
         id: get_sha
@@ -256,6 +231,7 @@ jobs:
           tag_name: ${{ needs.prepare-build.outputs.TAG_NAME }}
           name: Komikku ${{ needs.prepare-build.outputs.BUILD_TYPE_NAME }} ${{ needs.prepare-build.outputs.TAG_NAME }}
           body: |
+            [![GitHub downloads](https://img.shields.io/github/downloads/komikku-app/komikku/${{ needs.prepare-build.outputs.TAG_NAME }}/total?label=Downloaded&labelColor=27303D&color=0D1117&logo=github&logoColor=FFFFFF&style=flat)](https://github.com/komikku-app/komikku/releases/${{ needs.prepare-build.outputs.TAG_NAME }})
             #### What's Changed
             ##### New
 
