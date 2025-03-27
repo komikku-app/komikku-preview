@@ -147,7 +147,7 @@ jobs:
         if: github.event.inputs.git-ref == 'master'
         with:
           path: app/google-services.json
-          contents: "${{ secrets.GOOGLE_SERVICES_JSON }}"
+          contents: ${{ secrets.GOOGLE_SERVICES_JSON }}
           write-mode: overwrite
 
       - name: Write client_secrets.json
@@ -155,7 +155,7 @@ jobs:
         if: github.event.inputs.git-ref == 'master'
         with:
           path: app/src/main/assets/client_secrets.json
-          contents: "${{ secrets.GOOGLE_CLIENT_SECRETS_JSON }}"
+          contents: ${{ secrets.GOOGLE_CLIENT_SECRETS_JSON }}
           write-mode: overwrite
 
       - name: Set up gradle
