@@ -50,20 +50,16 @@ jobs:
       - name: Curren commit
         id: current_commit
         run: |
-          set -x
-
           commit_count=$(git rev-list --count HEAD)
+          current_sha=$(git rev-parse --short HEAD)
           echo "COMMIT_COUNT=$commit_count"
           echo "COMMIT_COUNT=$commit_count" >> $GITHUB_OUTPUT
-          current_sha=$(git rev-parse --short HEAD)
           echo "CURRENT_SHA=$current_sha"
           echo "CURRENT_SHA=$current_sha" >> $GITHUB_OUTPUT
 
       - name: Previous commit
         id: previous_commit
         run: |
-          set -x
-
           commit_count_diff=$(git rev-list --count "${{ steps.last_release.outputs.tag_name }}"..HEAD)
 
           # Fake at least 1 commits (to avoid no changes)
@@ -75,51 +71,32 @@ jobs:
           prev_release_sha=$(git rev-parse --short HEAD~$commit_count_diff)
           echo "PREV_RELEASE_SHA=$prev_release_sha"
           echo "PREV_RELEASE_SHA=$prev_release_sha" >> $GITHUB_OUTPUT
+          echo "PREV_TAG_NAME=${{ steps.last_release.outputs.tag_name }}"
           echo "PREV_TAG_NAME=${{ steps.last_release.outputs.tag_name }}" >> $GITHUB_OUTPUT
 
       - name: Prepare env
         id: prepare_env
         run: |
-          set -x
-
           tag_prefix=r
           artifacts_prefix=preview/app
           build_type_name=Preview
 
-          echo "${tag_prefix}${{ steps.current_commit.outputs.COMMIT_COUNT }}"
+          echo "TAG_NAME=${tag_prefix}${{ steps.current_commit.outputs.COMMIT_COUNT }}"
           echo "TAG_NAME=${tag_prefix}${{ steps.current_commit.outputs.COMMIT_COUNT }}" >> $GITHUB_OUTPUT
+          echo "ARTIFACTS_PREFIX=$artifacts_prefix"
           echo "ARTIFACTS_PREFIX=$artifacts_prefix" >> $GITHUB_OUTPUT
+          echo "BUILD_TYPE_NAME=$build_type_name"
           echo "BUILD_TYPE_NAME=$build_type_name" >> $GITHUB_OUTPUT
 
       - name: Commit logs
         id: commit_logs
         run: |
-          set -x
-
           echo "COMMIT_LOGS<<{delimiter}
           $(curl -H "Accept: application/vnd.github.v3+json" \
             "https://api.github.com/repos/komikku-app/komikku/compare/${{ steps.previous_commit.outputs.PREV_RELEASE_SHA }}...${{ steps.current_commit.outputs.CURRENT_SHA }}" \
             | jq '[.commits[]|{message:(.commit.message | split("\n")), username:.author.login}]' \
             | jq -r '.[]|"- \(.message | first) (@\(.username))"')
           {delimiter}" >> $GITHUB_OUTPUT
-
-      - name: Set CHANGELOG
-        id: set_changelog
-        if: github.event.inputs.git-ref != 'master'
-        run: |
-          set -x
-
-          changelog="$(git log ${{ steps.previous_commit.outputs.PREV_RELEASE_SHA }}..${{ steps.current_commit.outputs.CURRENT_SHA }} --pretty=format:'{{changelogtext}}%s (@%an){{!changelogtext}}')"
-          changelog="${changelog//$'%'/%25}"
-          changelog="${changelog//$'\n'/}"
-          changelog="${changelog//$'\r'/}"
-          changelog="${changelog//$'<'/}"
-          changelog="${changelog//$'>'/}"
-          changelog="${changelog//$'&'/}"
-          changelog="$(echo $changelog | sed -e 's/{{changelogtext}}/<changelogtext>/g')"
-          changelog="$(echo $changelog | sed -e 's/{{!changelogtext}}/<\/changelogtext>/g')"
-          changelog="<?xml version=\"1.0\" encoding=\"utf-8\"?><changelog bulletedList=\"true\"><changelogversion versionName=\"${{ steps.current_commit.outputs.TAG_NAME }}\" changeDate=\"\">$changelog</changelogversion></changelog>"
-          echo "CHANGELOG=$changelog" >> $GITHUB_OUTPUT
 
   build-app:
     runs-on: 'ubuntu-24.04'
@@ -137,15 +114,6 @@ jobs:
         with:
           java-version: 17
           distribution: temurin
-
-      # Overwrite changelog with commits log if it's not a preview build
-      - name: Write changelog_preview.xml
-        uses: DamianReeves/write-file-action@6929a9a6d1807689191dcc8bbe62b54d70a32b42 # v1.3
-        if: github.event.inputs.git-ref != 'master'
-        with:
-          path: app/src/main/res/raw/changelog_preview.xml
-          contents: "${{ needs.prepare-build.outputs.CHANGELOG }}"
-          write-mode: overwrite
 
       - name: Write google-services.json
         uses: DamianReeves/write-file-action@6929a9a6d1807689191dcc8bbe62b54d70a32b42 # v1.3
@@ -204,7 +172,7 @@ jobs:
       - name: Get SHA & clean up build artifacts
         id: get_sha
         run: |
-          set -ex
+          set -e
 
           mv app/build/outputs/apk/${{ needs.prepare-build.outputs.ARTIFACTS_PREFIX }}-universal-preview-signed.apk Komikku-${{ needs.prepare-build.outputs.TAG_NAME }}.apk
           sha=`sha256sum Komikku-${{ needs.prepare-build.outputs.TAG_NAME }}.apk | awk '{ print $1 }'`
@@ -230,7 +198,7 @@ jobs:
         uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2.2.1
         with:
           tag_name: ${{ needs.prepare-build.outputs.TAG_NAME }}
-          name: Komikku ${{ needs.prepare-build.outputs.BUILD_TYPE_NAME }} ${{ needs.prepare-build.outputs.TAG_NAME }}
+          name: Komikku Preview ${{ needs.prepare-build.outputs.BUILD_TYPE_NAME }} ${{ needs.prepare-build.outputs.TAG_NAME }}
           body: |
             [![GitHub downloads](https://img.shields.io/github/downloads/komikku-app/komikku-preview/${{ needs.prepare-build.outputs.TAG_NAME }}/total?label=Downloaded&labelColor=27303D&color=0D1117&logo=github&logoColor=FFFFFF&style=flat)](https://github.com/komikku-app/komikku-preview/releases/${{ needs.prepare-build.outputs.TAG_NAME }})
             #### What's Changed
