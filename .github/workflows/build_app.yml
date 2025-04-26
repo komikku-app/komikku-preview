@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       git-ref:
-        description: Git Ref to build ('master' for standard preview release, any other for dev preview pre-release)
+        description: Git Ref to build (branch, tag...)
         required: false
       dry-run:
         description: Creates a draft release (any value would create a draft)
@@ -28,7 +28,6 @@ jobs:
       COMMIT_LOGS: ${{ steps.commit_logs.outputs.COMMIT_LOGS }}
       ARTIFACTS_PREFIX: ${{ steps.prepare_env.outputs.ARTIFACTS_PREFIX }}
       BUILD_TYPE_NAME: ${{ steps.prepare_env.outputs.BUILD_TYPE_NAME }}
-      CHANGELOG: ${{ steps.set_changelog.outputs.CHANGELOG }}
       TAG_NAME: ${{ steps.prepare_env.outputs.TAG_NAME }}
       PREV_TAG_NAME: ${{ steps.previous_commit.outputs.PREV_TAG_NAME }}
     steps:
@@ -201,6 +200,7 @@ jobs:
           name: Komikku ${{ needs.prepare-build.outputs.BUILD_TYPE_NAME }} ${{ needs.prepare-build.outputs.TAG_NAME }}
           body: |
             [![GitHub downloads](https://img.shields.io/github/downloads/komikku-app/komikku-preview/${{ needs.prepare-build.outputs.TAG_NAME }}/total?label=Downloaded&labelColor=27303D&color=0D1117&logo=github&logoColor=FFFFFF&style=flat)](https://github.com/komikku-app/komikku-preview/releases/${{ needs.prepare-build.outputs.TAG_NAME }})
+
             #### What's Changed
             ##### New
 
