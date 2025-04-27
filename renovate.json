@@ -2,11 +2,12 @@
   "baseBranches": [
     "main"
   ],
-  "rebaseWhen": "conflicted",
   "labels": [
     "Dependencies"
   ],
+  "rebaseWhen": "conflicted",
   "automerge": true,
+  "semanticCommits": "enabled",
   "extends": [
     "config:best-practices",
     "github>mihonapp/mihon//.github/renovate.json5"
