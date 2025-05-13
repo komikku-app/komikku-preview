@@ -24,7 +24,7 @@ jobs:
           ref: 'master'
 
       - name: Dependency Review
-        uses: actions/dependency-review-action@38ecb5b593bf0eb19e335c03f97670f792489a8b # v4.7.0
+        uses: actions/dependency-review-action@da24556b548a50705dd671f47852072ea4c105d9 # v4.7.1
 
       - name: Validate Gradle Wrapper
         uses: gradle/actions/wrapper-validation@06832c7b30a0129d7fb559bcc6e43d26f6374244 # v4.3.1
