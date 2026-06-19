@@ -180,7 +180,7 @@ jobs:
           mv app/build/outputs/apk/${{ needs.prepare-build.outputs.ARTIFACTS_PREFIX }}-x86_64-preview-signed.apk Komikku-x86_64-${{ needs.prepare-build.outputs.TAG_NAME }}.apk
 
       - name: Create release
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
         with:
           tag_name: ${{ needs.prepare-build.outputs.TAG_NAME }}
           name: Komikku ${{ needs.prepare-build.outputs.BUILD_TYPE_NAME }} ${{ needs.prepare-build.outputs.TAG_NAME }}
