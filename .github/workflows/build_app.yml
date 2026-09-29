@@ -21,7 +21,7 @@ concurrency:
 jobs:
   prepare-build:
     if: github.event.inputs.git-ref != ''
-    runs-on: 'ubuntu-24.04'
+    runs-on: 'ubuntu-26.04'
     outputs:
       CURRENT_SHA: ${{ steps.current_commit.outputs.CURRENT_SHA }}
       PREV_RELEASE_SHA: ${{ steps.previous_commit.outputs.PREV_RELEASE_SHA }}
@@ -98,7 +98,7 @@ jobs:
           {delimiter}" >> $GITHUB_OUTPUT
 
   build-app:
-    runs-on: 'ubuntu-24.04'
+    runs-on: 'ubuntu-26.04'
     needs: prepare-build
     steps:
       - name: Clone Repository (${{ github.event.inputs.git-ref }} - ${{ needs.prepare-build.outputs.TAG_NAME }})
@@ -111,7 +111,7 @@ jobs:
       - name: Set up JDK
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
-          java-version: 17
+          java-version: 25
           distribution: temurin
 
       - name: Write google-services.json
@@ -147,7 +147,7 @@ jobs:
           retention-days: 1
 
   release-app:
-    runs-on: 'ubuntu-24.04'
+    runs-on: 'ubuntu-26.04'
     needs:
       - prepare-build
       - build-app
