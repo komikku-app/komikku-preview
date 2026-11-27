@@ -21,7 +21,7 @@ concurrency:
 jobs:
   prepare-build:
     if: github.event.inputs.git-ref != ''
-    runs-on: 'ubuntu-24.04'
+    runs-on: 'ubuntu-26.04'
     outputs:
       CURRENT_SHA: ${{ steps.current_commit.outputs.CURRENT_SHA }}
       PREV_RELEASE_SHA: ${{ steps.previous_commit.outputs.PREV_RELEASE_SHA }}
@@ -98,7 +98,7 @@ jobs:
           {delimiter}" >> $GITHUB_OUTPUT
 
   build-app:
-    runs-on: 'ubuntu-24.04'
+    runs-on: 'ubuntu-26.04'
     needs: prepare-build
     steps:
       - name: Clone Repository (${{ github.event.inputs.git-ref }} - ${{ needs.prepare-build.outputs.TAG_NAME }})
@@ -158,7 +158,7 @@ jobs:
           retention-days: 1
 
   release-app:
-    runs-on: 'ubuntu-24.04'
+    runs-on: 'ubuntu-26.04'
     needs:
       - prepare-build
       - build-app
