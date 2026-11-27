@@ -3,9 +3,9 @@ contact_links:
   - name: ⚠️ Application issue
     url: https://github.com/komikku-app/komikku/issues/new/choose
     about: Issues and requests about the app itself should be opened in the komikku repository instead
-  - name: ⚠️ Extensions issue
-    url: https://github.com/komikku-app/komikku-extensions/issues/new/choose
-    about: Issues and requests about the app itself should be opened in the Komikku-Extensions repository instead
+  - name: ❌ Help with Extensions
+    url: https://komikku-app.github.io/docs/faq/browse/extensions
+    about: For extension-related questions/issues
   - name: 🖥️ Komikku website
     url: https://komikku-app.github.io/
     about: Guides, troubleshooting, and answers to common questions
